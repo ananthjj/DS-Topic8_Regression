@@ -1,0 +1,235 @@
+---
+title: "Problem Set 6"
+author: "Prof. Bisbee"
+institute: "Vanderbilt University"
+date: "Due Date: 2022/10/23 @ 11:59PM CST"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Getting Set Up
+
+If you haven't already, create a folder for this course, and then a subfolder within for the second lecture `Topic8_Regression`, and two additional subfolders within `code` and `data`.
+
+Open `RStudio` and create a new RMarkDown file (`.Rmd`) by going to `File -> New File -> R Markdown...`.
+Change the title to `"DS1000: Problem Set 6"` and the author to your full name. Save this file as `[LAST NAME]_ps6.Rmd` to your `code` folder.
+
+If you haven't already, download the `mv.Rds` file from the course [github page](https://github.com/jbisbee1/DS1000-F2022/blob/master/Lectures/Topic8_Regression/data/mv.Rds) and save it to your `data` folder.
+
+The contents of this problem set can be found in the following resources:
+
+- [Topic 6](https://github.com/jbisbee1/DS1000-F2022/tree/master/Lectures/Topic6_UnivariateVisualization) parts 1 & 2 (univariate visualization)
+- [Topic 7](https://github.com/jbisbee1/DS1000-F2022/tree/master/Lectures/Topic7_ConditionalVariation) parts 1 & 2 (conditional analysis)
+- [Topic 8](https://github.com/jbisbee1/DS1000-F2022/tree/master/Lectures/Topic8_Regression) parts 1 & 2 (regression, RMSE, and cross validation)
+
+Require `tidyverse` and load the `mv.Rds` data to `mv`.
+```{r}
+# INSERT CODE HERE
+require(tidyverse)
+mv<-read_rds("../data/mv.rds")
+```
+
+
+**NOTE**: Starting with this problem set, we are moving to a system with fewer questions that are each more involved. For EACH of the questions below, you are expected to:
+
+1. Perform univariate analysis on each of the two variables separately (determine their class, identifying missingness, and plot with the appropriate figure).
+2. Plot the conditional relationship between the two variables using the appropriate figure. Transform the variables if needed by logging highly skewed data.
+3. Estimate the linear regression model.
+4. Evaluate model fit with 1) visual analysis of the residuals and 2) cross validation.
+
+
+## Question 1 [10 points]
+- **Research Question:** Are longer movies more expensive to make?
+- **Theory:** Longer running movies take more time to make. Time is money.
+- **Hypothesis:** The longer the movie, the more expensive it is.
+- *Hints:* You are looking at the conditional relationship between `budget` and `runtime`.
+
+
+```{r}
+# INSERT CODE HERE
+mv %>%
+count(is.na(budget))
+
+mv %>%
+count(is.na(runtime))
+
+mv %>%
+ggplot(aes(x=budget))+
+geom_histogram()+
+scale_x_log10(label = scales::dollar)+
+labs(title = 'Distribution of Movie Budgets',
+     subtitle = 'Data from mv.rds',
+x='Movie Budget ($)',
+y='Density')
+
+mv %>%
+ggplot(aes(x=runtime))+
+geom_histogram()+
+labs(title = 'Distibution of Movie Runtime',
+     subtitle = 'Data from mv.rds',
+x='Runtime (Minutes)',
+y='Density')
+
+mv %>%
+group_by(runtime)%>%
+summarise(meanBudget = mean(budget, na.rm=T))
+
+mv %>%
+ggplot(aes(x=runtime, y=budget))+
+scale_y_log10(label=scales::dollar)+
+geom_point()+
+geom_smooth(method ='lm', se = F)+
+labs(title = 'Movie Budget vs Movie Runtime',
+     subtitle = 'Data from mv.rds',
+x='Movie Runtime (Minutes)',
+y='Movie Budget ($)')
+  
+mv <- mv%>%
+drop_na(budget)%>%
+drop_na(runtime)%>%
+mutate(logBudget = log(budget))
+
+m <- lm(logBudget ~ runtime,data = mv)
+m
+
+mv$predictionsQ1 <- predict(m)
+mv$errorsQ1 <- mv$logBudget - mv$predictionsQ1
+summary(mv$errorsQ1)
+
+se <- mv$errorsQ1^2
+mse <- mean(se, na.rm=T)
+rmse <- sqrt(mse)
+
+mv %>%
+ggplot(aes(x = errorsQ1)) +
+geom_histogram() +
+labs(title = 'Errors',
+     subtitle = 'Data from mv.rds',
+     x = 'Errors: Log Budget - Predicted',
+     y = 'Density')
+
+bsRes <- NULL
+for(i in 1:100) {
+  inds <- sample(1:nrow(mv),size = 1000,replace = F)
+  train <- mv %>% slice(inds)
+  test <- mv %>% slice(-inds)
+  mTrain <- lm(logBudget ~ runtime,train)
+
+  bsRes <- test %>%
+  mutate(preds = predict(mTrain,newdata = test)) %>%
+  summarise(rmseQ1 = sqrt(mean((logBudget - preds)^2,na.rm=T))) %>%
+  bind_rows(bsRes)
+}
+
+bsRes %>%
+summarise_all(mean,na.rm=T)
+
+```
+
+> - Both runtime (movie length) and budget (expense to make the movie) are continuous variables of double class and have missing NA values. Based on the graph above, runtime and the log of the budget for skew are strongly positively correlated. The linear regression model is log(budget) = 14.67890 + 0.02381*(runtime). Based on residual visual analysis of the Error graph, there exists a unimodal normal distribution around 0 that is slightly skewed to the left. While the hypothesis is supported by the data, analyzing the residuals shows that the regression model is more accurate for low-budget movies than high-budget movies. Furthermore, cross validation shows a result of 1.244678 which is similar to the expescted RMSE value. Thus, the model is a good fit for the data.
+
+## Question 2 [10 points]
+- **Research Question:** Are movies getting worse?
+- **Theory:** Changes in the economy have resulted in Hollywood taking fewer and fewer artistic risks, prioritizing cinematic universes like Marvel and reducing the overall quality of movies.
+- **Hypothesis:** The more recent the movie, the worse it is.
+- *Hints:* You are looking at the conditional relationship between `score` and `year`.
+
+```{r}
+# INSERT CODE HERE
+mv %>%
+glimpse()
+
+mv %>%
+count(is.na(year))
+
+mv %>%
+count(is.na(score))
+
+mv %>%
+ggplot(aes(x=score))+
+geom_histogram()+
+labs(title = 'Distribution of Movie Ratings',
+     subtitle = 'Data from mv.rds',
+     x='Rating (1 - 10)',
+     y='Density')
+
+mv %>%
+ggplot(aes(x=year))+
+geom_bar()+
+labs(title = 'Distribution of Movie Release Years',
+     subtitle = 'Data from mv.rds',
+     x='Release Year',
+     y='Density')
+
+mv %>%
+group_by(year)%>%
+summarise(meanScore = mean(score, na.rm=T))
+
+mv %>%
+ggplot(aes(x=factor(year), y=score))+
+geom_boxplot()+
+labs(title = 'Are movies getting worse over time?',
+     subtitle = 'Data from mv.rds',
+     x='Release Year',
+     y='Rating (1 - 10)')
+
+mv <- mv %>%
+drop_na(year) %>%
+drop_na(score)
+
+m1 <- lm(score ~ year,data = mv)
+m1
+
+mv$predictionsQ2 <- predict(m1)
+mv$errorsQ2 <- mv$score - mv$predictionsQ2
+summary(mv$errorsQ2)
+
+se1 <- mv$errorsQ2^2
+mse1 <- mean(se1, na.rm=T)
+rmse1 <- sqrt(mse1)
+
+mv %>%
+ggplot(aes(x = errorsQ2)) +
+geom_histogram() +
+labs(title = 'Errors',
+     subtitle = 'Data from mv.rds',
+     x = 'Errors: Log Budget - Predicted',
+     y = 'Density')
+
+bsRes1 <- NULL
+for(i in 1:100) {
+inds <- sample(1:nrow(mv),size = 1000,replace = F)
+train <- mv %>% slice(inds)
+test <- mv %>% slice(-inds)
+mTrain1 <- lm(score ~ year,train)
+
+bsRes1 <- test %>%
+mutate(preds1 = predict(mTrain1,newdata = test)) %>%
+summarise(rmseQ2 = sqrt(mean((score - preds1)^2,na.rm=T))) %>%
+bind_rows(bsRes1)
+}
+
+bsRes1 %>%
+summarise_all(mean,na.rm=T)
+```
+
+> - Rating (movie rating 1-10) is a continuous variables of double class and has missing NA values. Meanwhile, year (movie release year) is a categorical variable of integer class and does not have missing NA values. Based on the conditional relationship graph above, there is a slight positive correlation between year and rating. However, the same cannot be said for the conditional relationship between rating and year. The linear regression model is Rating = -22.40081 + 0.01434(year). Based on residual visual analysis of the Error graph, there exists a unimodal normal distribution around 0. However, the regression model often overestimates or underestimates Rating. Cross-validation shows a result of 0.9562405 which is close the expected RMSE of 0.955. Thus, the model is a good fit for the data.
+
+## Question 3 [5 EXTRA CREDIT points]
+Create your own research question, theory, and hypothesis using the movie data, and answer it.
+
+- **Research Question:** Are Movies getting more Expensive?
+- **Theory:** Theorize your own.
+- **Hypothesis:** Express theory as an expectation.
+
+```{r}
+# INSERT CODE HERE
+```
+
+> - Write a short paragraph here.
+Footer
+© 2022 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
